@@ -66,8 +66,7 @@ func (m *Master) TaskHandler(args *TaskArgs, reply *TaskReply) error {
 }
 
 func (m *Master) ReportTaskHandler(args *ReportTaskArgs, reply *ReportTaskReply) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+
 	if args.Type == Map {
 		m.mapTaskStatus[args.Seq] = Finish
 		for _, v := range m.mapTaskStatus {
@@ -143,8 +142,7 @@ func MakeMaster(files []string, nReduce int) *Master {
 			Seq:      k,
 			FileName: file,
 			NReduce:  nReduce,
-
-			Type: Map,
+			Type:     Map,
 		}
 		m.taskCh <- task
 	}

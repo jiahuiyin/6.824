@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/rpc"
 	"os"
+	"strings"
 )
 
 //
@@ -77,7 +78,40 @@ func Worker(mapFun func(string, string) []KeyValue, reduceFun func(string, []str
 			rreply := &ReportTaskReply{}
 			call("Master.ReportTaskHandler", rarg, rreply)
 		} else {
+			maps := make(map[string][]string)
+			for idx := 0; idx < task.NMap; idx++ {
+				fileName := reduceName(idx, task.Seq)
+				file, _ := os.Open(fileName)
 
+				dec := json.NewDecoder(file)
+				for {
+					var kv KeyValue
+					if err := dec.Decode(&kv); err != nil {
+						break
+					}
+					if _, ok := maps[kv.Key]; !ok {
+						maps[kv.Key] = make([]string, 0)
+					}
+					maps[kv.Key] = append(maps[kv.Key], kv.Value)
+				}
+			}
+
+			res := make([]string, 0, 100)
+			for k, v := range maps {
+				res = append(res, fmt.Sprintf("%v %v\n", k, reduceFun(k, v)))
+			}
+
+			if err := ioutil.WriteFile(mergeName(task.Seq), []byte(strings.Join(res, "")), 0600); err != nil {
+
+			}
+
+			rarg := &ReportTaskArgs{
+				Done: true,
+				Seq:  task.Seq,
+				Type: task.Type,
+			}
+			rreply := &ReportTaskReply{}
+			call("Master.ReportTaskHandler", rarg, rreply)
 		}
 	}
 
