@@ -17,11 +17,20 @@ import (
 //
 
 type TaskArgs struct {
-	X int
 }
 
 type TaskReply struct {
-	Y int
+	Done bool
+	Task *Task
+}
+
+type ReportTaskArgs struct {
+	Done bool
+	Seq  int
+	Type TaskType
+}
+
+type ReportTaskReply struct {
 }
 
 // Add your RPC definitions here.

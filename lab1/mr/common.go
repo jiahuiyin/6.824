@@ -4,19 +4,19 @@ import (
 	"fmt"
 )
 
-type TaskPhase int64
+type TaskType int64
 
 const (
-	MapPhase    TaskPhase = 1
-	ReducePhase TaskPhase = 2
+	Map    TaskType = 1
+	Reduce TaskType = 2
 )
 
 type Task struct {
+	Seq      int
 	FileName string
 	NReduce  int
-	NMaps    int
-	Seq      int
-	Phase    TaskPhase
+	NMap     int
+	Type     TaskType
 }
 
 func reduceName(mapIdx, reduceIdx int) string {

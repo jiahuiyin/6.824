@@ -1,10 +1,13 @@
 package mr
 
 import (
+	"encoding/json"
 	"fmt"
 	"hash/fnv"
+	"io/ioutil"
 	"log"
 	"net/rpc"
+	"os"
 )
 
 //
@@ -14,6 +17,12 @@ type KeyValue struct {
 	Key   string
 	Value string
 }
+type ByKey []KeyValue
+
+// for sorting by key.
+func (a ByKey) Len() int           { return len(a) }
+func (a ByKey) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a ByKey) Less(i, j int) bool { return a[i].Key < a[j].Key }
 
 //
 // use ihash(key) % NReduce to choose the reduce
@@ -28,37 +37,50 @@ func ihash(key string) int {
 //
 // main/mrworker.go calls this function.
 //
-func Worker(mapf func(string, string) []KeyValue,
-	reducef func(string, []string) string) {
+func Worker(mapFun func(string, string) []KeyValue, reduceFun func(string, []string) string) {
 
-	// Your worker implementation here.
+	for true {
+		arg := &TaskArgs{}
+		var reply TaskReply
+		call("Master.TaskHandler", arg, &reply)
+		if reply.Done {
+			return
+		}
+		task := reply.Task
+		if task.Type == Map {
+			file, err := os.Open(task.FileName)
+			if err != nil {
+				log.Fatalf("cannot open %v", task.FileName)
+			}
+			content, err := ioutil.ReadAll(file)
+			kvs := mapFun(task.FileName, string(content))
+			kvss := make([][]KeyValue, task.NReduce, task.NReduce)
+			for _, kv := range kvs {
+				idx := ihash(kv.Key) % task.NReduce
+				kvss[idx] = append(kvss[idx], kv)
+			}
+			for idx, kvs := range kvss {
+				fileName := reduceName(task.Seq, idx)
+				f, _ := os.Create(fileName)
 
-	// uncomment to send the Example RPC to the master.
-	// CallExample()
+				enc := json.NewEncoder(f)
+				for _, kv := range kvs {
+					enc.Encode(&kv)
+				}
+				f.Close()
+			}
+			rarg := &ReportTaskArgs{
+				Done: true,
+				Seq:  task.Seq,
+				Type: task.Type,
+			}
+			rreply := &ReportTaskReply{}
+			call("Master.ReportTaskHandler", rarg, rreply)
+		} else {
 
-}
+		}
+	}
 
-//
-// example function to show how to make an RPC call to the master.
-//
-// the RPC argument and reply types are defined in rpc.go.
-//
-func CallExample() {
-
-	// declare an argument structure.
-	args := TaskArgs{}
-
-	// fill in the argument(s).
-	args.X = 99
-
-	// declare a reply structure.
-	reply := TaskReply{}
-
-	// send the RPC request, wait for the reply.
-	call("Master.Example", &args, &reply)
-
-	// reply.Y should be 100.
-	fmt.Printf("reply.Y %v\n", reply.Y)
 }
 
 //
@@ -67,9 +89,9 @@ func CallExample() {
 // returns false if something goes wrong.
 //
 func call(rpcname string, args interface{}, reply interface{}) bool {
-	// c, err := rpc.DialHTTP("tcp", "127.0.0.1"+":1234")
-	sockname := masterSock()
-	c, err := rpc.DialHTTP("unix", sockname)
+	c, err := rpc.DialHTTP("tcp", "127.0.0.1:1234")
+	//	sockname := masterSock()
+	//	c, err := rpc.DialHTTP("unix", sockname)
 	if err != nil {
 		log.Fatal("dialing:", err)
 	}

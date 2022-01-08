@@ -1,20 +1,34 @@
 package mr
 
 import (
+	"fmt"
 	"log"
+	"math"
 	"net"
 	"net/http"
 	"net/rpc"
-	"os"
 	"sync"
+)
+
+type TaskStatus int64
+
+const (
+	Ready   TaskStatus = 0
+	Finish  TaskStatus = 1
+	Running TaskStatus = 2
 )
 
 type Master struct {
 	// Your definitions here.
-	mu      *sync.Mutex
-	done    bool
-	files   []string
-	nReduce int
+	mu               *sync.Mutex
+	done             bool
+	noTask           bool
+	files            []string
+	mapTaskStatus    []TaskStatus
+	mapDone          bool
+	reduceTaskStatus []TaskStatus
+	nReduce          int
+	taskCh           chan *Task
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -24,8 +38,62 @@ type Master struct {
 //
 // the RPC argument and reply types are defined in rpc.go.
 //
-func (m *Master) Example(args *TaskArgs, reply *TaskReply) error {
-	reply.Y = args.X + 1
+func (m *Master) TaskHandler(args *TaskArgs, reply *TaskReply) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	fmt.Println(123123123)
+	done := true
+	for _, v := range m.reduceTaskStatus {
+		if v == Ready {
+			done = false
+		}
+	}
+	if done {
+		reply.Done = true
+
+	} else {
+		task := <-m.taskCh
+		if task.Type == Map {
+			m.mapTaskStatus[task.Seq] = Running
+		} else {
+			m.reduceTaskStatus[task.Seq] = Running
+		}
+		reply.Done = false
+		reply.Task = task
+
+	}
+	return nil
+}
+
+func (m *Master) ReportTaskHandler(args *ReportTaskArgs, reply *ReportTaskReply) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if args.Type == Map {
+		m.mapTaskStatus[args.Seq] = Finish
+		for _, v := range m.mapTaskStatus {
+			if v == Running || v == Ready {
+				return nil
+			}
+		}
+		m.mapDone = true
+
+		for i := 0; i < m.nReduce; i++ {
+			m.taskCh <- &Task{
+				Seq:     i,
+				NReduce: m.nReduce,
+				NMap:    len(m.files),
+				Type:    Reduce,
+			}
+		}
+	} else {
+		m.reduceTaskStatus[args.Seq] = Finish
+		for _, v := range m.reduceTaskStatus {
+			if v == Running || v == Ready {
+				return nil
+			}
+		}
+		m.done = true
+	}
 	return nil
 }
 
@@ -35,10 +103,10 @@ func (m *Master) Example(args *TaskArgs, reply *TaskReply) error {
 func (m *Master) server() {
 	rpc.Register(m)
 	rpc.HandleHTTP()
-	//l, e := net.Listen("tcp", ":1234")
-	sockname := masterSock()
-	os.Remove(sockname)
-	l, e := net.Listen("unix", sockname)
+	l, e := net.Listen("tcp", "127.0.0.1:1234")
+	//sockname := masterSock()
+	//os.Remove(sockname)
+	//l, e := net.Listen("tcp", sockname)
 	if e != nil {
 		log.Fatal("listen error:", e)
 	}
@@ -66,8 +134,20 @@ func MakeMaster(files []string, nReduce int) *Master {
 		nReduce: nReduce,
 		mu:      &sync.Mutex{},
 	}
+	m.reduceTaskStatus = make([]TaskStatus, nReduce, nReduce)
+	m.mapTaskStatus = make([]TaskStatus, len(files), len(files))
 
-	// Your code here.
+	m.taskCh = make(chan *Task, int(math.Max(float64(len(files)), float64(nReduce))))
+	for k, file := range files {
+		task := &Task{
+			Seq:      k,
+			FileName: file,
+			NReduce:  nReduce,
+
+			Type: Map,
+		}
+		m.taskCh <- task
+	}
 
 	m.server()
 	return &m
