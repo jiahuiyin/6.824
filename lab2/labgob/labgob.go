@@ -1,19 +1,21 @@
 package labgob
 
+import (
+	"encoding/gob"
+	"fmt"
+	"io"
+	"reflect"
+	"sync"
+	"unicode"
+	"unicode/utf8"
+)
+
 //
 // trying to send non-capitalized fields over RPC produces a range of
 // misbehavior, including both mysterious incorrect computation and
 // outright crashes. so this wrapper around Go's encoding/gob warns
 // about non-capitalized field names.
 //
-
-import "encoding/gob"
-import "io"
-import "reflect"
-import "fmt"
-import "sync"
-import "unicode"
-import "unicode/utf8"
 
 var mu sync.Mutex
 var errorCount int // for TestCapital
